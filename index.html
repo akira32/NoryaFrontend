@@ -11,22 +11,60 @@
       background: #f7f8fa;
       padding: 20px;
     }
+    h1 {
+      margin-bottom: 10px;
+    }
+    .controls {
+      margin-bottom: 15px;
+    }
+    .controls button {
+      padding: 8px 14px;
+      margin-right: 8px;
+      border-radius: 4px;
+      border: 1px solid #4caf50;
+      background: #4caf50;
+      color: #fff;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .controls button.secondary {
+      background: #ffffff;
+      color: #4caf50;
+    }
+    .controls button:hover {
+      opacity: 0.9;
+    }
+
+    #loading {
+      font-size: 16px;
+      color: #777;
+    }
+    #error {
+      color: red;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 20px;
+      margin-top: 10px;
       background: white;
       box-shadow: 0 0 10px rgba(0,0,0,0.05);
     }
     th, td {
       border: 1px solid #ddd;
-      padding: 10px;
+      padding: 8px 10px;
       text-align: left;
       vertical-align: middle;
+      font-size: 14px;
     }
     th {
       background: #4caf50;
       color: white;
+      position: sticky;
+      top: 0;
+      z-index: 1;
     }
     img.table-img {
       width: 80px;
@@ -40,7 +78,14 @@
 </head>
 <body>
 
-  <h1>Norya遊戲模擬器</h1>
+  <h1>Norya角色資料一覽</h1>
+
+  <div class="controls">
+    <button id="btnAll" class="secondary">顯示全部角色</button>
+    <button id="btnMagic">選擇五個魔法攻擊的角色</button>
+    <button id="btnPhysical">選擇五個物理攻擊的角色</button>
+  </div>
+
   <p id="loading">資料讀取中...</p>
   <p id="error"></p>
 
@@ -50,6 +95,8 @@
   </table>
 
   <script>
+    const API_BASE = "http://localhost:3000";
+
     // 判斷是否為圖片連結
     function isImageUrl(url) {
       if (!url) return false;
@@ -66,71 +113,105 @@
       );
     }
 
-    // 將 Google Drive 分享連結轉成縮圖
+    // 將 Google Drive 分享連結轉成縮圖網址
     function driveToThumbnail(url) {
       if (!url.includes("drive.google.com")) return url;
-
       const match = url.match(/\/d\/(.*?)\//);
       if (!match) return url;
-
       const id = match[1];
       return `https://drive.google.com/thumbnail?id=${id}&sz=w200`;
     }
 
-    async function loadSheetData() {
+    // 渲染表格
+    function renderTable(rows) {
+      const table = document.getElementById("sheetTable");
+      const thead = document.getElementById("thead");
+      const tbody = document.getElementById("tbody");
+
+      if (!rows || rows.length === 0) {
+        table.style.display = "none";
+        document.getElementById("error").textContent = "沒有資料可顯示";
+        return;
+      }
+
+      table.style.display = "table";
+
+      const columns = Object.keys(rows[0]);
+
+      // 表頭
+      thead.innerHTML = `
+        <tr>${columns.map(col => `<th>${col}</th>`).join("")}</tr>
+      `;
+
+      // 內容
+      tbody.innerHTML = rows
+        .map(row => {
+          return `
+            <tr>
+              ${columns.map(col => {
+                const value = row[col] ?? "";
+                if (isImageUrl(value)) {
+                  const imgUrl = driveToThumbnail(value);
+                  return `<td><img class="table-img" src="${imgUrl}" alt=""></td>`;
+                }
+                return `<td>${value}</td>`;
+              }).join("")}
+            </tr>
+          `;
+        })
+        .join("");
+    }
+
+    // 共用：呼叫 API 並渲染
+    async function fetchAndRender(url) {
+      const loadingEl = document.getElementById("loading");
+      const errorEl = document.getElementById("error");
+      loadingEl.style.display = "block";
+      loadingEl.textContent = "資料讀取中...";
+      errorEl.textContent = "";
+
       try {
-        const response = await fetch("http://localhost:3000/api/sheet-data");
-        const json = await response.json();
+        const res = await fetch(url);
+        const json = await res.json();
+
+        loadingEl.style.display = "none";
 
         if (!json.success) {
-          document.getElementById("error").textContent = "後端回傳錯誤：" + json.message;
+          errorEl.textContent = "後端回傳錯誤：" + (json.message || "未知錯誤");
+          document.getElementById("sheetTable").style.display = "none";
           return;
         }
 
-        const rows = json.rows;
-        document.getElementById("loading").style.display = "none";
-        document.getElementById("sheetTable").style.display = "table";
-
-        const thead = document.getElementById("thead");
-        const tbody = document.getElementById("tbody");
-
-        const columns = Object.keys(rows[0]);
-
-        // --- 表頭 ---
-        thead.innerHTML = `
-          <tr>${columns.map(col => `<th>${col}</th>`).join("")}</tr>
-        `;
-
-        // --- 表格內容 ---
-        tbody.innerHTML = rows
-          .map(row => {
-            return `
-              <tr>
-                ${columns
-                  .map(col => {
-                    const value = row[col] ?? "";
-
-                    // 如果是圖片連結 → 顯示 <img>
-                    if (isImageUrl(value)) {
-                      const imgUrl = driveToThumbnail(value);
-                      return `<td><img class="table-img" src="${imgUrl}" alt=""></td>`;
-                    }
-
-                    // 文字欄位 → 一般顯示
-                    return `<td>${value}</td>`;
-                  })
-                  .join("")}
-              </tr>
-            `;
-          })
-          .join("");
+        renderTable(json.rows);
       } catch (err) {
-        document.getElementById("loading").style.display = "none";
-        document.getElementById("error").textContent = "讀取失敗：" + err.message;
+        loadingEl.style.display = "none";
+        errorEl.textContent = "讀取失敗：" + err.message;
+        document.getElementById("sheetTable").style.display = "none";
       }
     }
 
-    loadSheetData();
+    // 初始載入：全部角色
+    function loadAll() {
+      fetchAndRender(`${API_BASE}/api/sheet-data`);
+    }
+
+    // 載入：魔法攻擊前五名
+    function loadTopMagic() {
+      fetchAndRender(`${API_BASE}/api/top-characters?type=magic`);
+    }
+
+    // 載入：物理攻擊前五名
+    function loadTopPhysical() {
+      fetchAndRender(`${API_BASE}/api/top-characters?type=physical`);
+    }
+
+    // 綁定按鈕
+    document.getElementById("btnAll").addEventListener("click", loadAll);
+    document.getElementById("btnMagic").addEventListener("click", loadTopMagic);
+    document.getElementById("btnPhysical").addEventListener("click", loadTopPhysical);
+
+    // 頁面載入完成後，先載入全部
+    loadAll();
   </script>
 
 </body>
